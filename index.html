@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eight-Team NBA Manager</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="teamChoiceModal" class="contract-modal hidden">
+      <section class="contract-panel team-choice-panel">
+        <div class="panel-heading">
+          <h3>Choose Your Team</h3>
+          <span class="pill">Season 1 setup</span>
+        </div>
+        <div class="notice">Pick one team to control for this 10-year run. The league will not begin until you confirm.</div>
+        <div id="teamChoiceGrid" class="team-choice-grid"></div>
+        <button id="confirmTeamBtn" class="primary-button" disabled>Start League</button>
+      </section>
+    </div>
+
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <div class="league-mark">8</div>
+          <div>
+            <h1>NBA Manager</h1>
+            <p id="seasonLabel">Season 1 of 10</p>
+          </div>
+        </div>
+
+        <label class="field-label" for="teamSelect">Your Team</label>
+        <select id="teamSelect"></select>
+
+        <nav class="nav-tabs" aria-label="Game views">
+          <button class="tab-button active" data-view="dashboard">Dashboard</button>
+          <button class="tab-button" data-view="roster">Roster</button>
+          <button class="tab-button" data-view="league">League</button>
+          <button class="tab-button" data-view="trade">Trade</button>
+          <button class="tab-button" data-view="playoffs">Playoffs</button>
+          <button class="tab-button" data-view="draft">Draft</button>
+          <button class="tab-button" data-view="freeMarket">Free Market</button>
+          <button class="tab-button" data-view="news">News</button>
+          <button class="tab-button" data-view="mailbox">Mailbox<span id="mailboxDot" class="red-dot hidden"></span></button>
+          <button class="tab-button" data-view="history">History</button>
+        </nav>
+
+        <div class="season-actions">
+          <button id="playNextBtn" class="primary-button">Play Next Window</button>
+          <button id="simSeasonBtn">Finish Season</button>
+          <button id="playoffsBtn">Run Playoffs</button>
+          <button id="draftBtn">Start Draft</button>
+          <button id="newSeasonBtn">Next Season</button>
+        </div>
+
+        <button id="resetBtn" class="danger-button">Reset League</button>
+      </aside>
+
+      <section class="content">
+        <section class="score-strip" id="scoreStrip"></section>
+
+        <section class="view active" id="dashboardView">
+          <div class="court-panel">
+            <div class="court-visual" aria-hidden="true">
+              <div class="paint left"></div>
+              <div class="paint right"></div>
+              <div class="center-circle"></div>
+              <div class="arc left"></div>
+              <div class="arc right"></div>
+            </div>
+            <div class="court-copy">
+              <p class="eyebrow" id="phaseLabel">Regular Season</p>
+              <h2 id="activeTeamName">Team</h2>
+              <p id="teamSummary"></p>
+            </div>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <h3>Next Game</h3>
+                <span id="scheduleProgress"></span>
+              </div>
+              <div id="nextGameBox" class="dense-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <h3>Team Money</h3>
+                <span id="capSeason"></span>
+              </div>
+              <div id="financeBox" class="metric-grid"></div>
+            </section>
+
+            <section class="panel wide">
+              <div class="panel-heading">
+                <h3>Recent Games</h3>
+                <span>Stats include secret form</span>
+              </div>
+              <div id="gameLog" class="game-log"></div>
+            </section>
+
+            <section class="panel wide">
+              <div class="panel-heading">
+                <h3>League News</h3>
+                <span>Trades, injuries, draft, and stars</span>
+              </div>
+              <div id="dashboardNews" class="game-log"></div>
+            </section>
+
+            <section class="panel wide">
+              <div class="panel-heading">
+                <h3>Team Identity</h3>
+                <span>Style, balance, and trade ideas</span>
+              </div>
+              <div id="teamIdentity" class="identity-grid"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="rosterView">
+          <div class="toolbar">
+            <h2>Roster Control</h2>
+            <div class="hint">Choose starters and minutes. More minutes grow experience, but raise health risk.</div>
+          </div>
+          <div id="rosterTable" class="table-wrap"></div>
+        </section>
+
+        <section class="view" id="leagueView">
+          <div class="toolbar">
+            <h2>League Profiles</h2>
+            <div class="hint">Click a team to scout its full roster, salaries, contract length, and form icons.</div>
+          </div>
+          <div id="standingsBox" class="conference-grid"></div>
+          <div id="leagueTeamDetail" class="panel"></div>
+          <div id="profilesBox" class="profiles-grid"></div>
+        </section>
+
+        <section class="view" id="tradeView">
+          <div class="toolbar">
+            <h2>Trade Desk</h2>
+            <div class="hint">Trade only during roster-freeze windows. Players, cash, and future draft picks can move.</div>
+          </div>
+          <div id="tradeWindowNotice" class="notice"></div>
+          <div class="sub-tabs">
+            <button class="sub-tab active" data-trade-tab="builder">Trade Builder</button>
+            <button class="sub-tab" data-trade-tab="pending">Pending Proposals</button>
+            <button class="sub-tab" data-trade-tab="records">Trade Records</button>
+          </div>
+          <div id="tradePendingPanel" class="news-list hidden"></div>
+          <div id="tradeRecordsPanel" class="news-list hidden"></div>
+          <div id="tradeBuilderPanel">
+          <div class="trade-grid">
+            <section class="panel">
+              <div class="panel-heading"><h3>Your Offer</h3><span id="tradeTeamA"></span></div>
+              <div id="tradeAPlayers" class="check-list"></div>
+              <label class="field-label" for="cashA">Cash Out</label>
+              <input id="cashA" type="number" min="0" step="0.1" value="0" />
+              <label class="field-label" for="pickA">Draft Pick Out</label>
+              <select id="pickA"></select>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><h3>Target</h3><select id="tradeTarget"></select></div>
+              <div id="tradeBPlayers" class="check-list"></div>
+              <label class="field-label" for="cashB">Cash Back</label>
+              <input id="cashB" type="number" min="0" step="0.1" value="0" />
+              <label class="field-label" for="pickB">Draft Pick Back</label>
+              <select id="pickB"></select>
+            </section>
+            <section class="panel trade-result">
+              <h3>Validation</h3>
+              <div id="tradeResult"></div>
+              <div id="tradeSummary" class="trade-summary"></div>
+              <button id="submitTradeBtn" class="primary-button">Submit Trade</button>
+            </section>
+          </div>
+          </div>
+        </section>
+
+        <section class="view" id="playoffsView">
+          <div class="toolbar">
+            <h2>Playoff Bracket</h2>
+            <div class="hint">Run playoffs to reveal each series and key performers.</div>
+          </div>
+          <div id="playoffBracket" class="bracket-grid"></div>
+        </section>
+
+        <section class="view" id="draftView">
+          <div class="toolbar">
+            <h2>Two-Round Draft</h2>
+            <div class="hint">Reverse standings order. Picks can be traded before draft night.</div>
+          </div>
+          <div class="draft-layout">
+            <section class="panel">
+              <div class="panel-heading"><h3>Draft Board</h3><span id="draftStatus"></span></div>
+              <div id="draftBoard" class="dense-list"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><h3>Prospects</h3><span>Outside the eight teams</span></div>
+              <div id="prospectList" class="prospect-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="historyView">
+          <div class="toolbar">
+            <h2>Dynasty Race</h2>
+            <div class="hint">Ties break by runner-up finishes, then conference-final finishes.</div>
+          </div>
+          <div id="historyBox" class="history-grid"></div>
+        </section>
+
+        <section class="view" id="newsView">
+          <div class="toolbar">
+            <h2>League News</h2>
+            <div class="hint">Transactions include key player averages so you can judge the market.</div>
+          </div>
+          <div class="sub-tabs">
+            <button class="sub-tab active" data-news-tab="your">Your News</button>
+            <button class="sub-tab" data-news-tab="all">All News</button>
+          </div>
+          <div id="yourNewsBox" class="news-list"></div>
+          <div id="newsBox" class="news-list hidden"></div>
+        </section>
+
+        <section class="view" id="freeMarketView">
+          <div class="toolbar">
+            <h2>Free Player Market</h2>
+            <div class="hint">Bid on unsigned players. Highest offer holds for 3 minutes before signing.</div>
+          </div>
+          <div id="freeMarketBox" class="news-list"></div>
+        </section>
+
+        <section class="view" id="mailboxView">
+          <div class="toolbar">
+            <h2>Mailbox</h2>
+            <div class="hint">Other managers send trade requests here. Fire and market-tagged players affect offer priority.</div>
+          </div>
+          <div id="mailboxBox" class="news-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <div id="contractModal" class="contract-modal hidden">
+      <section class="contract-panel">
+        <div class="panel-heading">
+          <h3 id="contractTitle">Contract Offer</h3>
+          <button id="closeContractBtn">Close</button>
+        </div>
+        <div id="contractContext" class="notice"></div>
+        <label class="field-label" for="contractSalary">Salary (% of cap)</label>
+        <input id="contractSalary" type="number" min="1" max="35" step="1" />
+        <label class="field-label" for="contractYears">Years</label>
+        <input id="contractYears" type="number" min="1" max="3" step="1" />
+        <label class="field-label" for="contractOption">Final-Year Option</label>
+        <select id="contractOption">
+          <option value="none">No option</option>
+          <option value="team1">Team choice last 1 year</option>
+          <option value="player1">Player choice last 1 year</option>
+          <option value="team2">Team choice last 2 years</option>
+          <option value="player2">Player choice last 2 years</option>
+        </select>
+        <div id="contractProbability" class="notice"></div>
+        <button id="submitContractBtn" class="primary-button">Place Offer</button>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
