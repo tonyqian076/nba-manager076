@@ -4,6 +4,7 @@ const HARD_CAP_MULT = 1.33;
 const INVESTMENT_MULT = 1.12;
 const SAVE_KEY = "eightTeamNbaManager.v8";
 const CLIENT_ID_KEY = "eightTeamNbaManager.clientId";
+const LANG_KEY = "eightTeamNbaManager.language";
 const AI_TRADE_SCAN_GAMES = 3;
 const TEAM_GAME_WINDOWS = [3, 6, 9];
 const MIN_SALARY_PCT = 1;
@@ -21,8 +22,241 @@ const pct = (n) => `${Math.round(n)}%`;
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const rand = (min, max) => min + Math.random() * (max - min);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+let currentLang = localStorage.getItem(LANG_KEY) || "en";
+const textSources = new WeakMap();
 const clientId = getClientId();
 const localTeamKey = (roomKey) => `eightTeamNbaManager.localTeam.${roomKey}`;
+
+const zhExact = {
+  "Eight-Team NBA Manager": "八队 NBA 经理",
+  "NBA Manager": "NBA 经理",
+  "Start League": "开始联盟",
+  "Season 1 setup": "第 1 赛季设置",
+  "Choose single-player or multiplayer before selecting a team.": "选择球队前，请先选择单人模式或多人模式。",
+  "One Player": "单人模式",
+  "You control one team. The other seven teams are AI managers.": "你控制一支球队，另外七支球队由 AI 经理控制。",
+  "Multiplayer Room": "多人房间",
+  "Different laptops join the same room key and claim one team each.": "不同电脑输入同一个房间码，每人选择一支球队。",
+  "Room Key": "房间码",
+  "Join Room": "加入房间",
+  "Run the included Node server, then every laptop opens the same server URL and room key.": "先运行内置 Node 服务器，然后每台电脑打开同一个服务器地址并输入同一个房间码。",
+  "Your Team": "你的球队",
+  "Language": "语言",
+  "Dashboard": "仪表盘",
+  "Roster": "阵容",
+  "League": "联盟",
+  "Trade": "交易",
+  "Playoffs": "季后赛",
+  "Draft": "选秀",
+  "Free Market": "自由市场",
+  "News": "新闻",
+  "Mailbox": "邮箱",
+  "History": "历史",
+  "Play Next Window": "推进下一阶段",
+  "Finish Season": "结束常规赛",
+  "Run Playoffs": "开始季后赛",
+  "Start Draft": "开始选秀",
+  "Next Season": "下一赛季",
+  "Reset League": "重置联盟",
+  "Regular Season": "常规赛",
+  "Team": "球队",
+  "Next Game": "下一场比赛",
+  "Team Money": "球队财务",
+  "Recent Games": "近期比赛",
+  "Stats include secret form": "数据包含隐藏状态影响",
+  "League News": "联盟新闻",
+  "Trades, injuries, draft, and stars": "交易、伤病、选秀和球星",
+  "Team Identity": "球队风格",
+  "Style, balance, and trade ideas": "打法、平衡和交易建议",
+  "Roster Control": "阵容管理",
+  "Choose starters and minutes. More minutes grow experience, but raise health risk.": "设置首发和上场时间。更多时间会增加经验，但也会提高健康风险。",
+  "League Profiles": "联盟资料",
+  "Click a team to scout its full roster, salaries, contract length, and form icons.": "点击球队查看完整阵容、薪资、合同年限和状态图标。",
+  "Trade Desk": "交易中心",
+  "Trade only during roster-freeze windows. Players, cash, and future draft picks can move.": "只能在阵容解冻窗口交易。球员、现金和未来选秀权都可以交易。",
+  "Trade Builder": "交易构建",
+  "Pending Proposals": "待处理报价",
+  "Trade Records": "交易记录",
+  "Your Offer": "你的报价",
+  "Cash Out": "送出现金",
+  "Draft Pick Out": "送出选秀权",
+  "Target": "目标球队",
+  "Cash Back": "得到现金",
+  "Draft Pick Back": "得到选秀权",
+  "Validation": "规则检查",
+  "Submit Trade": "提交交易",
+  "Playoff Bracket": "季后赛对阵",
+  "Run playoffs to reveal each series and key performers.": "开始季后赛后会显示每轮系列赛和关键球员。",
+  "Two-Round Draft": "两轮选秀",
+  "Reverse standings order. Picks can be traded before draft night.": "按常规赛倒序选秀。选秀前可以交易选秀权。",
+  "Draft Board": "选秀顺位",
+  "Prospects": "新秀池",
+  "Outside the eight teams": "八队之外的球员",
+  "Dynasty Race": "王朝排名",
+  "Ties break by runner-up finishes, then conference-final finishes.": "冠军数相同先比亚军次数，再比分区决赛次数。",
+  "Transactions include key player averages so you can judge the market.": "交易新闻包含关键球员场均数据，方便判断市场价值。",
+  "Your News": "你的新闻",
+  "All News": "全部新闻",
+  "Free Player Market": "自由球员市场",
+  "Bid on unsigned players. Highest offer holds for 3 minutes before signing.": "为未签约球员出价。最高报价保持 3 分钟后完成签约。",
+  "Other managers send trade requests here. Fire and market-tagged players affect offer priority.": "其他经理会在这里发交易请求。火热和超市标签会影响报价优先级。",
+  "Contract Offer": "合同报价",
+  "Close": "关闭",
+  "Salary (% of cap)": "薪资（工资帽百分比）",
+  "Years": "年限",
+  "Final-Year Option": "最后一年选项",
+  "No option": "无选项",
+  "Team choice last 1 year": "最后 1 年球队选项",
+  "Player choice last 1 year": "最后 1 年球员选项",
+  "Team choice last 2 years": "最后 2 年球队选项",
+  "Player choice last 2 years": "最后 2 年球员选项",
+  "Place Offer": "提交报价",
+  "Choose Your Team": "选择你的球队",
+  "Join Multiplayer Room": "加入多人房间",
+  "Room setup": "房间设置",
+  "Choose Mode First": "请先选择模式",
+  "Join Room First": "请先加入房间",
+  "Claim Team": "认领球队",
+  "Choose team": "选择球队",
+  "Team Selection": "球队选择",
+  "Choose Team First": "请先选择球队",
+  "Dynasty complete": "王朝结束",
+  "Regular Season Complete": "常规赛结束",
+  "Draft Ready": "准备选秀",
+  "Draft Night": "选秀夜",
+  "Offseason": "休赛期",
+  "10-Year Results": "10 年结果",
+  "Trade window open": "交易窗口开放",
+  "Roster frozen": "阵容冻结",
+  "Hidden form active": "隐藏状态生效",
+  "No regular season games left": "常规赛已全部结束",
+  "No games yet.": "还没有比赛。",
+  "No news yet.": "还没有新闻。",
+  "Shot Profile": "投篮倾向",
+  "Team Lean": "球队倾向",
+  "Trade Ideas": "交易建议",
+  "Recommendation": "建议",
+  "Inside": "内线",
+  "Outside": "外线",
+  "Balanced": "均衡",
+  "Offense": "进攻",
+  "Defense": "防守",
+  "Player": "球员",
+  "Role": "角色",
+  "Trade Tag": "交易标签",
+  "Salary": "薪资",
+  "Yrs": "年",
+  "Stats": "数据",
+  "Actions": "操作",
+  "Starter": "首发",
+  "Normal": "普通",
+  "Locked": "锁定",
+  "Supermarket": "交易超市",
+  "Extend": "续约",
+  "Waive": "裁掉",
+  "Contract": "合同",
+  "Health": "健康",
+  "Avg": "场均",
+  "Tag": "标签",
+  "Rotation": "轮换",
+  "Bench": "替补",
+  "No pick": "不含选秀权",
+  "Trade is legal.": "交易合法。",
+  "Add at least one asset.": "至少加入一项资产。",
+  "Trading is closed while rosters are frozen.": "阵容冻结时交易关闭。",
+  "Total salary": "总薪资",
+  "Estimated Acceptance": "预计接受概率",
+  "Legal framework": "符合规则",
+  "Blocked by rules": "规则阻止",
+  "No assets selected.": "未选择资产。",
+  "future asset": "未来资产",
+  "Cash": "现金",
+  "Draft is not active": "选秀尚未开始",
+  "Finish playoffs first": "请先完成季后赛",
+  "Made": "已选择",
+  "On clock": "正在选择",
+  "Waiting": "等待中",
+  "Draft": "选中",
+  "No Playoff Results": "暂无季后赛结果",
+  "Run playoffs after the regular season to fill the bracket.": "常规赛结束后开始季后赛，对阵表会自动生成。",
+  "Winner": "胜者",
+  "No personal news yet.": "还没有你的新闻。",
+  "Open Bid Window": "打开报价窗口",
+  "No free players yet. Expired contracts enter this market after the offseason rollover.": "暂无自由球员。合同到期且未续约的球员会在休赛期后进入这里。",
+  "Extension notice": "续约提醒",
+  "Open Extension Window": "打开续约窗口",
+  "Dismiss": "忽略",
+  "Move to Trash": "移到垃圾箱",
+  "You receive": "你得到",
+  "You send": "你送出",
+  "Accept": "接受",
+  "Decline": "拒绝",
+  "No trade requests yet. Mark a player as supermarket or wait for the next trade window.": "暂无交易请求。可以把球员标为交易超市，或等待下一个交易窗口。",
+  "Trash": "垃圾箱",
+  "Declined and expired mail.": "已拒绝和过期邮件。",
+  "Old mailbox item": "旧邮件",
+  "Final Ranking": "最终排名",
+  "Championship Log": "冠军记录",
+  "Season by season": "逐赛季",
+  "No champions yet": "还没有冠军",
+  "Play on": "继续比赛"
+};
+
+const zhPhrases = [
+  ["Season", "赛季"],
+  ["Room", "房间"],
+  ["Conference", "赛区"],
+  ["open", "可选"],
+  ["yours", "你的"],
+  ["claimed", "已被选择"],
+  ["payroll", "薪资总额"],
+  ["Payroll", "薪资总额"],
+  ["investment", "投资额"],
+  ["Investment", "投资额"],
+  ["Hard Cap", "硬工资帽"],
+  ["Hard cap", "硬工资帽"],
+  ["Dead Cap", "死钱"],
+  ["Dead cap", "死钱"],
+  ["Cap", "工资帽"],
+  ["Cash", "现金"],
+  ["Stat leader", "数据领袖"],
+  ["Team games", "球队比赛数"],
+  ["Next stop", "下一阶段"],
+  ["all teams at", "所有球队达到"],
+  ["games", "场"],
+  ["playoffs", "季后赛"],
+  ["at", "主场对"],
+  ["Age", "年龄"],
+  ["age", "年龄"],
+  ["injured", "受伤"],
+  ["round", "轮"],
+  ["pick", "签"],
+  ["rookie salary", "新秀薪资"],
+  ["estimated ability", "预估能力"],
+  ["years completed", "个赛季已完成"],
+  ["titles", "冠军"],
+  ["2nd", "亚军"],
+  ["CF", "分区决赛"],
+  ["over", "击败"],
+  ["High bid", "最高报价"],
+  ["Mother team", "母队"],
+  ["Unknown", "未知"],
+  ["No bids", "暂无报价"],
+  ["for", "，年限"],
+  ["Still legal", "仍然合法"],
+  ["No longer legal", "不再合法"],
+  ["trade request", "交易请求"],
+  ["proposal", "报价"],
+  ["notice", "通知"],
+  ["status", "状态"],
+  ["accepted", "已接受"],
+  ["declined", "已拒绝"],
+  ["expired", "已过期"],
+  ["open-market bid", "公开市场报价"],
+  ["Mother-team relationship improves odds.", "母队关系会提高接受概率。"],
+  ["Open-market bid.", "公开市场报价。"],
+  ["Players usually prefer longer deals and player options.", "球员通常更喜欢更长合同和球员选项。"]
+];
 
 let state = migrateState(loadState() || createNewState());
 let multiplayerSession = {
@@ -43,6 +277,87 @@ function getClientId() {
     localStorage.setItem(CLIENT_ID_KEY, id);
   }
   return id;
+}
+
+function setLanguage(lang) {
+  currentLang = lang === "zh" ? "zh" : "en";
+  localStorage.setItem(LANG_KEY, currentLang);
+  render();
+}
+
+function localizeText(text) {
+  if (currentLang !== "zh") return text;
+  const leading = text.match(/^\s*/)?.[0] || "";
+  const trailing = text.match(/\s*$/)?.[0] || "";
+  let core = text.trim();
+  if (!core) return text;
+  if (zhExact[core]) return `${leading}${zhExact[core]}${trailing}`;
+  core = core.replace(/^Season (\d+) of 10$/, "第 $1 / 10 赛季");
+  core = core.replace(/^Season (\d+):/, "第 $1 赛季：");
+  core = core.replace(/^S(\d+):/, "第 $1 赛季：");
+  core = core.replace(/^(\d+)-(\d+), payroll (.+), investment (.+)\. Stat leader: (.+)\.$/, "$1-$2，薪资总额 $3，投资额 $4。数据领袖：$5。");
+  core = core.replace(/^Play Until Each Team Has (\d+) Games$/, "比赛推进到每队 $1 场");
+  core = core.replace(/^Team games (.+) \/ 10$/, "球队比赛数 $1 / 10");
+  core = core.replace(/^Cap (.+)$/, "工资帽 $1");
+  core = core.replace(/^Payroll (.+)$/, "薪资总额 $1");
+  core = core.replace(/^Investment (.+)$/, "投资额 $1");
+  core = core.replace(/^Hard cap (.+)$/i, "硬工资帽 $1");
+  core = core.replace(/^Cash (.+)$/, "现金 $1");
+  core = core.replace(/^Dead cap (.+)$/i, "死钱 $1");
+  core = core.replace(/^Under cap by (.+); investment room (.+)\.$/, "低于工资帽 $1；投资空间 $2。");
+  core = core.replace(/^Above cap by (.+); investment room (.+)\.$/, "高于工资帽 $1；投资空间 $2。");
+  core = core.replace(/^Season (\d+) round (\d+) pick$/, "第 $1 赛季第 $2 轮签");
+  core = core.replace(/^Season (\d+) round (\d+) pick \((.+)\)$/, "第 $1 赛季第 $2 轮签（$3）");
+  core = core.replace(/^Season (\d+), round (\d+), pick (\d+): (.+)$/, "第 $1 赛季，第 $2 轮，第 $3 顺位：$4");
+  core = core.replace(/^Season (\d+) complete$/, "第 $1 赛季完成");
+  core = core.replace(/^Round (\d+)$/, "第 $1 轮");
+  core = core.replace(/^(.+) Conference$/, "$1 赛区");
+  core = core.replace(/^(.+) - open$/, "$1 - 可选");
+  core = core.replace(/^(.+) - yours$/, "$1 - 你的");
+  core = core.replace(/^(.+) - claimed$/, "$1 - 已被选择");
+  core = core.replace(/^Age (\d+)$/, "年龄 $1");
+  core = core.replace(/^(.+), age (\d+)$/, "$1，年龄 $2");
+  core = core.replace(/^(.+), age (\d+), injured (\d+)g$/, "$1，年龄 $2，受伤 $3 场");
+  core = core.replace(/^(\d+) GP$/, "$1 场");
+  core = core.replace(/PPG/g, "分");
+  core = core.replace(/RPG/g, "板");
+  core = core.replace(/APG/g, "助");
+  core = core.replace(/GP/g, "场");
+  core = core.replace(/ yrs$/g, " 年");
+  core = core.replace(/y$/g, "年");
+  core = core.replace(/^(.+) offer\. Market estimate: (.+)% of cap\. Maximum allowed: (.+)%(.+)?$/, "$1 报价。市场估值：工资帽 $2%。最高允许：$3%$4");
+  core = core.replace(/^Estimated signing chance: (\d+)%\. (.+)$/, "预计签约概率：$1%。$2");
+  core = core.replace(/^Bid: (.+)$/, "报价：$1");
+  core = core.replace(/^Extend: (.+)$/, "续约：$1");
+  zhPhrases.forEach(([from, to]) => {
+    core = core.split(from).join(to);
+  });
+  return `${leading}${core}${trailing}`;
+}
+
+function applyLanguage() {
+  document.documentElement.lang = currentLang === "zh" ? "zh-CN" : "en";
+  document.title = currentLang === "zh" ? "八队 NBA 经理" : "Eight-Team NBA Manager";
+  const selector = $("languageSelect");
+  if (selector) selector.value = currentLang;
+  const roomInput = $("roomKeyInput");
+  if (roomInput) roomInput.placeholder = currentLang === "zh" ? "例如：FINALS2026" : "Example: FINALS2026";
+  if (!document.createTreeWalker) return;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || ["SCRIPT", "STYLE"].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+      if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    if (!textSources.has(node)) textSources.set(node, node.nodeValue);
+    const source = textSources.get(node);
+    node.nodeValue = currentLang === "zh" ? localizeText(source) : source;
+  });
 }
 
 function createNewState() {
@@ -1682,6 +1997,7 @@ function render() {
   renderHistory();
   renderContractModal();
   renderSetupModal();
+  applyLanguage();
   saveState();
 }
 
@@ -2328,6 +2644,7 @@ $("joinRoomBtn").addEventListener("click", joinMultiplayerRoom);
 $("roomKeyInput").addEventListener("input", (event) => {
   event.target.value = sanitizeRoomKey(event.target.value);
 });
+$("languageSelect").addEventListener("change", (event) => setLanguage(event.target.value));
 $("resetBtn").addEventListener("click", () => {
   if (confirm("Reset the full 10-year league?")) {
     localStorage.removeItem(SAVE_KEY);
