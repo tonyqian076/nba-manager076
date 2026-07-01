@@ -22,3 +22,4 @@ No build step or server is required.
 - `index.html` - app shell and views
 - `styles.css` - UI styling
 - `app.js` - game simulation and interaction logic
+- `data/playerPool.js` - team rosters, player ages, and draft player pool
