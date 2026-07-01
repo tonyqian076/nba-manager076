@@ -2,6 +2,8 @@
 
 A browser-based NBA manager simulation for an 8-team league. Choose one team, manage rotations and contracts, trade with AI managers, draft new players, and chase championships across a 10-year run.
 
+中文使用手册: [README.zh-CN.md](./README.zh-CN.md)
+
 ## Features
 
 - Separate team-selection window before Season 1 starts
