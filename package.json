@@ -1,0 +1,9 @@
+{
+  "name": "eight-team-nba-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Eight-team NBA manager simulation with local and room-key multiplayer modes.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

@@ -467,6 +467,39 @@ h3 {
   width: min(760px, 100%);
 }
 
+.mode-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mode-choice-card {
+  min-height: 92px;
+  padding: 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  display: grid;
+  gap: 6px;
+}
+
+.mode-choice-card.active {
+  border-color: var(--accent);
+  background: #eff7ff;
+}
+
+.multiplayer-setup {
+  display: grid;
+  gap: 10px;
+}
+
+.room-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .team-choice-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -2,7 +2,8 @@ const CAP_START = 154.6;
 const CAP_GROWTH = 0.06;
 const HARD_CAP_MULT = 1.33;
 const INVESTMENT_MULT = 1.12;
-const SAVE_KEY = "eightTeamNbaManager.v7";
+const SAVE_KEY = "eightTeamNbaManager.v8";
+const CLIENT_ID_KEY = "eightTeamNbaManager.clientId";
 const AI_TRADE_SCAN_GAMES = 3;
 const TEAM_GAME_WINDOWS = [3, 6, 9];
 const MIN_SALARY_PCT = 1;
@@ -20,8 +21,29 @@ const pct = (n) => `${Math.round(n)}%`;
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const rand = (min, max) => min + Math.random() * (max - min);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const clientId = getClientId();
+const localTeamKey = (roomKey) => `eightTeamNbaManager.localTeam.${roomKey}`;
 
 let state = migrateState(loadState() || createNewState());
+let multiplayerSession = {
+  connected: false,
+  roomKey: "",
+  localTeamId: null,
+  version: 0,
+  pulling: false,
+  pushing: false,
+  pollTimer: null,
+  lastJson: ""
+};
+
+function getClientId() {
+  let id = localStorage.getItem(CLIENT_ID_KEY);
+  if (!id) {
+    id = `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    localStorage.setItem(CLIENT_ID_KEY, id);
+  }
+  return id;
+}
 
 function createNewState() {
   const teams = teamSeeds.map((team) => ({
@@ -60,6 +82,8 @@ function createNewState() {
     champions: [],
     draft: null,
     aiMode: true,
+    setupMode: null,
+    multiplayer: { enabled: false, roomKey: "", claims: {} },
     userTeamId: null,
     pendingTeamId: teams[0].id,
     teamLocked: false,
@@ -106,6 +130,7 @@ function emptyStats() {
 
 function saveState() {
   localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+  pushMultiplayerState();
 }
 
 function loadState() {
@@ -116,10 +141,167 @@ function loadState() {
   }
 }
 
+function selectGameMode(mode) {
+  if (state.setupComplete) return;
+  state.setupMode = mode;
+  if (mode === "single") {
+    state.multiplayer = { enabled: false, roomKey: "", claims: {} };
+    multiplayerSession.connected = false;
+    multiplayerSession.roomKey = "";
+    multiplayerSession.localTeamId = null;
+    stopMultiplayerPolling();
+  } else {
+    state.multiplayer = { enabled: true, roomKey: state.multiplayer?.roomKey || "", claims: state.multiplayer?.claims || {} };
+  }
+  saveState();
+  render();
+}
+
+async function joinMultiplayerRoom() {
+  const input = $("roomKeyInput");
+  const roomKey = sanitizeRoomKey(input.value);
+  if (!roomKey) {
+    setRoomStatus("Type a room key first.");
+    return;
+  }
+  if (location.protocol === "file:") {
+    setRoomStatus("Multiplayer needs the Node server. Run npm start, then open the server URL on each laptop.");
+    return;
+  }
+  setRoomStatus("Connecting...");
+  try {
+    const room = await roomRequest("GET", `/api/rooms/${roomKey}`);
+    multiplayerSession.connected = true;
+    multiplayerSession.roomKey = roomKey;
+    multiplayerSession.version = room.version || 0;
+    multiplayerSession.lastJson = "";
+    const localSavedTeam = localStorage.getItem(localTeamKey(roomKey));
+    if (room.state) {
+      multiplayerSession.pulling = true;
+      state = migrateState(room.state);
+      state.setupMode = "multiplayer";
+      state.multiplayer = state.multiplayer || { enabled: true, roomKey, claims: {} };
+      state.multiplayer.enabled = true;
+      state.multiplayer.roomKey = roomKey;
+      state.multiplayer.claims = room.claims || state.multiplayer.claims || {};
+      multiplayerSession.localTeamId = state.multiplayer.claims?.[localSavedTeam] === clientId ? localSavedTeam : null;
+    } else {
+      state = createNewState();
+      state.setupMode = "multiplayer";
+      state.multiplayer = { enabled: true, roomKey, claims: {} };
+      multiplayerSession.localTeamId = null;
+      await pushMultiplayerState(true);
+    }
+    startMultiplayerPolling();
+    setRoomStatus(`Connected to room ${roomKey}. Choose an open team.`);
+    render();
+    multiplayerSession.pulling = false;
+  } catch (error) {
+    multiplayerSession.pulling = false;
+    multiplayerSession.connected = false;
+    setRoomStatus(`Could not join room. Make sure the server is running. ${error.message || ""}`);
+  }
+}
+
+async function claimMultiplayerTeam(teamId) {
+  if (!multiplayerSession.connected || !multiplayerSession.roomKey) {
+    setRoomStatus("Join a multiplayer room before claiming a team.");
+    return false;
+  }
+  try {
+    const room = await roomRequest("POST", `/api/rooms/${multiplayerSession.roomKey}/claim`, { teamId, clientId });
+    state.multiplayer.claims = room.claims || state.multiplayer.claims || {};
+    multiplayerSession.version = room.version || multiplayerSession.version;
+    setRoomStatus(`You claimed ${teamById(teamId).name}.`);
+    return true;
+  } catch (error) {
+    setRoomStatus(error.message || "That team is already claimed.");
+    await pullMultiplayerState();
+    return false;
+  }
+}
+
+function sanitizeRoomKey(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 18);
+}
+
+function setRoomStatus(message) {
+  const box = $("roomStatus");
+  if (box) box.textContent = message;
+}
+
+async function roomRequest(method, path, body = null) {
+  const response = await fetch(path, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Room request failed (${response.status})`);
+  return data;
+}
+
+function startMultiplayerPolling() {
+  stopMultiplayerPolling();
+  multiplayerSession.pollTimer = setInterval(pullMultiplayerState, 1500);
+}
+
+function stopMultiplayerPolling() {
+  if (multiplayerSession.pollTimer) clearInterval(multiplayerSession.pollTimer);
+  multiplayerSession.pollTimer = null;
+}
+
+async function pullMultiplayerState() {
+  if (!multiplayerSession.connected || !multiplayerSession.roomKey || multiplayerSession.pushing) return;
+  try {
+    const room = await roomRequest("GET", `/api/rooms/${multiplayerSession.roomKey}`);
+    if (!room.state) return;
+    if ((room.version || 0) <= multiplayerSession.version) return;
+    const localTeam = multiplayerSession.localTeamId;
+    multiplayerSession.pulling = true;
+    state = migrateState(room.state);
+    state.setupMode = "multiplayer";
+    state.multiplayer = state.multiplayer || { enabled: true, roomKey: multiplayerSession.roomKey, claims: {} };
+    state.multiplayer.enabled = true;
+    state.multiplayer.roomKey = multiplayerSession.roomKey;
+    state.multiplayer.claims = room.claims || state.multiplayer.claims || {};
+    multiplayerSession.localTeamId = state.multiplayer.claims?.[localTeam] === clientId ? localTeam : null;
+    multiplayerSession.version = room.version || multiplayerSession.version;
+    multiplayerSession.lastJson = JSON.stringify(state);
+    render();
+    multiplayerSession.pulling = false;
+  } catch (error) {
+    setRoomStatus(`Room connection paused: ${error.message || "server unavailable"}`);
+  }
+}
+
+async function pushMultiplayerState(force = false) {
+  if (!state.multiplayer?.enabled || !multiplayerSession.connected || !multiplayerSession.roomKey || multiplayerSession.pulling) return;
+  const json = JSON.stringify(state);
+  if (!force && json === multiplayerSession.lastJson) return;
+  multiplayerSession.lastJson = json;
+  multiplayerSession.pushing = true;
+  try {
+    const room = await roomRequest("POST", `/api/rooms/${multiplayerSession.roomKey}/state`, {
+      clientId,
+      state
+    });
+    multiplayerSession.version = room.version || multiplayerSession.version;
+    if (room.claims) state.multiplayer.claims = room.claims;
+  } catch (error) {
+    setRoomStatus(`Could not sync room: ${error.message || "server unavailable"}`);
+  } finally {
+    multiplayerSession.pushing = false;
+  }
+}
+
 function migrateState(saved) {
   saved.aiMode = saved.aiMode !== false;
+  saved.setupMode = saved.setupMode || (saved.setupComplete ? "single" : null);
+  saved.multiplayer = saved.multiplayer || { enabled: false, roomKey: "", claims: {} };
+  saved.multiplayer.claims = saved.multiplayer.claims || {};
   saved.setupComplete = Boolean(saved.setupComplete || saved.teamLocked || saved.gameIndex > 0 || saved.season > 1 || saved.champions?.length);
-  saved.userTeamId = saved.setupComplete ? (saved.userTeamId || saved.teams?.[0]?.id || "bos") : saved.userTeamId;
+  saved.userTeamId = saved.multiplayer.enabled ? (saved.userTeamId || null) : saved.setupComplete ? (saved.userTeamId || saved.teams?.[0]?.id || "bos") : saved.userTeamId;
   saved.pendingTeamId = saved.pendingTeamId || saved.userTeamId || saved.teams?.[0]?.id || "bos";
   saved.teamLocked = Boolean(saved.teamLocked || saved.gameIndex > 0 || saved.season > 1 || saved.champions?.length);
   saved.tradeWindow = saved.tradeWindow !== false && saved.phase === "regular" ? saved.tradeWindow : Boolean(saved.tradeWindow);
@@ -158,7 +340,7 @@ function teamById(id) {
 }
 
 function humanTeam() {
-  return teamById(state.userTeamId) || state.teams[0];
+  return teamById(localControlledTeamId()) || teamById(state.userTeamId) || state.teams[0];
 }
 
 function setupTeam() {
@@ -167,6 +349,18 @@ function setupTeam() {
 
 function isHumanTeam(team) {
   return team.id === humanTeam().id;
+}
+
+function localControlledTeamId() {
+  return state.multiplayer?.enabled ? multiplayerSession.localTeamId : state.userTeamId;
+}
+
+function hasLocalControl() {
+  return state.setupComplete && (!state.multiplayer?.enabled || Boolean(multiplayerSession.localTeamId));
+}
+
+function isClaimedByAnyPlayer(team) {
+  return Boolean(state.multiplayer?.claims?.[team.id]);
 }
 
 function aiLog(message) {
@@ -398,7 +592,7 @@ function teamStrength(team) {
 }
 
 function playNextGame() {
-  if (!state.setupComplete) return render();
+  if (!hasLocalControl()) return render();
   if (state.phase !== "regular") return;
   if (!confirmPendingMailbox("advance games")) return;
   lockTeam();
@@ -560,7 +754,7 @@ function updateExperienceAndHealth(player, playoff) {
 }
 
 function runRegularSeason() {
-  if (!state.setupComplete) return render();
+  if (!hasLocalControl()) return render();
   if (state.phase !== "regular") return;
   if (!confirmPendingMailbox("finish the season")) return;
   lockTeam();
@@ -575,7 +769,7 @@ function runRegularSeason() {
 }
 
 function runPlayoffs(auto = false) {
-  if (!state.setupComplete) return render();
+  if (!hasLocalControl()) return render();
   if (state.phase !== "playoffs-ready") return;
   runAiManagers("playoffs");
   state.phase = "playoffs";
@@ -655,7 +849,7 @@ function standings(conf) {
 }
 
 function startDraft() {
-  if (!state.setupComplete) return render();
+  if (!hasLocalControl()) return render();
   if (state.phase !== "draft-ready") return;
   lockTeam();
   runAiManagers("draft prep");
@@ -727,7 +921,7 @@ function rookieSalaryPct(round, pickNumber) {
 }
 
 function openContractOffer(type, playerId, freeAgentId = null, preset = null) {
-  if (!state.setupComplete) return;
+  if (!hasLocalControl()) return;
   const team = humanTeam();
   const player = freeAgentId
     ? state.freeAgents.find((fa) => fa.id === freeAgentId)?.player
@@ -855,7 +1049,7 @@ function resolveFreeAgentBids() {
 }
 
 function nextSeason() {
-  if (!state.setupComplete) return render();
+  if (!hasLocalControl()) return render();
   if (!["offseason", "draft-ready"].includes(state.phase)) return;
   if (!confirmPendingMailbox("advance to next season")) return;
   if (state.season >= 10) {
@@ -895,7 +1089,7 @@ function nextSeason() {
     team.players = team.players.filter((player) => !player.release);
     resolveContracts(team);
     trimRoster(team);
-    if (state.aiMode && !isHumanTeam(team)) aiSetRotation(team);
+    if (state.aiMode && !isHumanTeam(team) && !isClaimedByAnyPlayer(team)) aiSetRotation(team);
     else normalizeRotation(team);
   });
   state.schedule = buildSchedule(state.teams);
@@ -916,7 +1110,7 @@ function confirmPendingMailbox(action) {
 function resolveContracts(team) {
   team.players.forEach((player) => {
     if (player.contract > 0) return;
-    if (!isHumanTeam(team)) {
+    if (!isHumanTeam(team) && !isClaimedByAnyPlayer(team)) {
       const askPct = marketValuePct(player);
       const offer = { salaryPct: askPct, years: rating(player) > 78 ? 3 : 2, option: "none" };
       const chance = contractAcceptance(player, team, offer) + 6;
@@ -977,7 +1171,7 @@ function trimRoster(team) {
 
 function runAiManagers(reason) {
   if (!state.setupComplete || !state.aiMode) return;
-  state.teams.filter((team) => !isHumanTeam(team)).forEach((team) => aiSetRotation(team));
+  state.teams.filter((team) => !isHumanTeam(team) && !isClaimedByAnyPlayer(team)).forEach((team) => aiSetRotation(team));
   if (["season", "new season", "draft prep"].includes(reason)) runAiTradeMarket();
   aiBidFreeAgents();
   if (state.tradeWindow) generateMailboxOffers();
@@ -987,7 +1181,7 @@ function aiBidFreeAgents() {
   if (!state.freeAgents?.length) return;
   state.freeAgents.filter((fa) => !fa.signed).forEach((fa) => {
     if (Math.random() > 0.28) return;
-    const bidders = state.teams.filter((team) => !isHumanTeam(team) && payroll(team) < investment(team) * 0.96).sort((a, b) => rosterNeedScore(b, fa.player.pos) - rosterNeedScore(a, fa.player.pos));
+    const bidders = state.teams.filter((team) => !isHumanTeam(team) && !isClaimedByAnyPlayer(team) && payroll(team) < investment(team) * 0.96).sort((a, b) => rosterNeedScore(b, fa.player.pos) - rosterNeedScore(a, fa.player.pos));
     const team = bidders[0];
     if (!team) return;
     const base = marketValuePct(fa.player);
@@ -1088,7 +1282,7 @@ function runAiTradeMarket() {
   if (!state.aiMode || state.phase === "draft" || state.phase === "complete") return;
   if (!state.tradeWindow) return;
   let deals = 0;
-  const bots = state.teams.filter((team) => !isHumanTeam(team)).sort(() => Math.random() - 0.5);
+  const bots = state.teams.filter((team) => !isHumanTeam(team) && !isClaimedByAnyPlayer(team)).sort(() => Math.random() - 0.5);
   bots.forEach((team) => {
     if (deals >= 3 || Math.random() > 0.62) return;
     const deal = findAiTrade(team);
@@ -1252,7 +1446,7 @@ function createCounterOfferNotice(offer) {
 }
 
 function findAiTrade(team) {
-  const partners = state.teams.filter((other) => other.id !== team.id && !isHumanTeam(other)).sort(() => Math.random() - 0.5);
+  const partners = state.teams.filter((other) => other.id !== team.id && !isHumanTeam(other) && !isClaimedByAnyPlayer(other)).sort(() => Math.random() - 0.5);
   const sellers = [...team.players].sort((a, b) => aiTradeAwayScore(b, team) - aiTradeAwayScore(a, team)).slice(0, 4);
   for (const partner of partners) {
     const targets = [...partner.players].sort((a, b) => aiPlayerValue(b, team) - aiPlayerValue(a, team)).slice(0, 5);
@@ -1408,11 +1602,11 @@ function pickLabel(token) {
 }
 
 function canTradeNow() {
-  return state.setupComplete && ["regular", "draft-ready", "offseason"].includes(state.phase) && state.tradeWindow;
+  return hasLocalControl() && ["regular", "draft-ready", "offseason"].includes(state.phase) && state.tradeWindow;
 }
 
 function executeTrade() {
-  if (!state.setupComplete) return render();
+  if (!hasLocalControl()) return render();
   const result = validateTrade();
   if (!result.ok) return renderTradeResult(result);
   const a = teamById($("teamSelect").value);
@@ -1454,7 +1648,7 @@ function executeTrade() {
     setPickOwner(b, parsed.year, parsed.round, a.id);
   }
   normalizeRotation(a);
-  if (state.aiMode && !isHumanTeam(b)) aiSetRotation(b);
+  if (state.aiMode && !isHumanTeam(b) && !isClaimedByAnyPlayer(b)) aiSetRotation(b);
   else normalizeRotation(b);
   yourNewsLog(`${a.name} completed a trade with ${b.name}. ${tradeNewsDetails(aPlayers, bPlayers)}`);
   state.tradeHistory.unshift({ season: state.season, status: "accepted", text: `${a.name} traded ${assetText(aPlayers, selectedPickYear("pickA"))} to ${b.name} for ${assetText(bPlayers, selectedPickYear("pickB"))}.` });
@@ -1467,8 +1661,8 @@ function checkedValues(containerId) {
 }
 
 function render() {
-  const active = state.setupComplete ? humanTeam() : setupTeam();
-  if (state.setupComplete) {
+  const active = hasLocalControl() ? humanTeam() : setupTeam();
+  if (hasLocalControl()) {
     cleanupInvalidMailbox();
     checkExtensionNotices();
     resolveFreeAgentBids();
@@ -1494,19 +1688,38 @@ function render() {
 function renderSetupModal() {
   const modal = $("teamChoiceModal");
   if (!modal) return;
-  if (state.setupComplete) {
+  if (hasLocalControl()) {
     modal.classList.add("hidden");
     return;
   }
   state.pendingTeamId = state.pendingTeamId || state.teams[0].id;
   modal.classList.remove("hidden");
+  const mode = state.setupMode;
+  $("setupTitle").textContent = mode === "multiplayer" ? "Join Multiplayer Room" : mode === "single" ? "Choose Your Team" : "Start League";
+  $("setupBadge").textContent = mode === "multiplayer" ? (multiplayerSession.connected ? `Room ${multiplayerSession.roomKey}` : "Room setup") : "Season 1 setup";
+  $("setupNotice").textContent = mode === "multiplayer"
+    ? "Join a room key, then claim one unclaimed team. Claimed teams are controlled by other laptops."
+    : mode === "single"
+      ? "Pick one team to control for this 10-year run. The league will not begin until you confirm."
+      : "Choose one-player mode or multiplayer mode before selecting a team.";
+  $("modeChoiceGrid").classList.toggle("hidden", Boolean(mode));
+  $("multiplayerSetup").classList.toggle("hidden", mode !== "multiplayer");
+  $("singleModeBtn").classList.toggle("active", mode === "single");
+  $("multiModeBtn").classList.toggle("active", mode === "multiplayer");
+  if (!mode || (mode === "multiplayer" && !multiplayerSession.connected)) {
+    $("teamChoiceGrid").innerHTML = "";
+    $("confirmTeamBtn").disabled = true;
+    $("confirmTeamBtn").textContent = mode === "multiplayer" ? "Join Room First" : "Choose Mode First";
+    return;
+  }
   $("teamChoiceGrid").innerHTML = state.teams.map((team) => `
-    <button class="team-choice-card ${team.id === state.pendingTeamId ? "active" : ""}" data-choose-team="${team.id}" style="border-top: 4px solid ${team.color}">
+    <button class="team-choice-card ${team.id === state.pendingTeamId ? "active" : ""}" data-choose-team="${team.id}" ${teamClaimDisabled(team) ? "disabled" : ""} style="border-top: 4px solid ${team.color}">
       <strong>${team.name}</strong>
-      <span class="muted">${team.conf} Conference</span>
+      <span class="muted">${team.conf} Conference${teamClaimLabel(team)}</span>
     </button>
   `).join("");
-  $("confirmTeamBtn").disabled = !state.pendingTeamId;
+  $("confirmTeamBtn").textContent = mode === "multiplayer" ? "Claim Team" : "Start League";
+  $("confirmTeamBtn").disabled = !state.pendingTeamId || teamClaimDisabled(setupTeam());
   document.querySelectorAll("[data-choose-team]").forEach((button) => button.addEventListener("click", () => {
     state.pendingTeamId = button.dataset.chooseTeam;
     saveState();
@@ -1516,15 +1729,38 @@ function renderSetupModal() {
   }));
 }
 
-function confirmTeamSelection() {
-  if (state.setupComplete) return;
-  state.userTeamId = state.pendingTeamId || state.teams[0].id;
-  state.pendingTeamId = state.userTeamId;
+function teamClaimDisabled(team) {
+  if (state.setupMode !== "multiplayer") return false;
+  const claimedBy = state.multiplayer?.claims?.[team.id];
+  return Boolean(claimedBy && claimedBy !== clientId);
+}
+
+function teamClaimLabel(team) {
+  if (state.setupMode !== "multiplayer") return "";
+  const claimedBy = state.multiplayer?.claims?.[team.id];
+  if (!claimedBy) return " - open";
+  return claimedBy === clientId ? " - yours" : " - claimed";
+}
+
+async function confirmTeamSelection() {
+  if (hasLocalControl()) return;
+  const selectedTeamId = state.pendingTeamId || state.teams[0].id;
+  if (state.setupMode === "multiplayer") {
+    const claimed = await claimMultiplayerTeam(selectedTeamId);
+    if (!claimed) return;
+    multiplayerSession.localTeamId = selectedTeamId;
+    localStorage.setItem(localTeamKey(multiplayerSession.roomKey), selectedTeamId);
+    state.userTeamId = null;
+  } else {
+    state.setupMode = "single";
+    state.userTeamId = selectedTeamId;
+  }
+  state.pendingTeamId = selectedTeamId;
   state.teamLocked = true;
   state.setupComplete = true;
-  state.scoutTeamId = state.teams.find((team) => team.id !== state.userTeamId)?.id || state.teams[0].id;
-  state.news = [`Season ${state.season}: League opened after ${humanTeam().name} was selected.`];
-  state.yourNews = [`Season ${state.season}: You chose ${humanTeam().name}. The first roster window is open.`];
+  state.scoutTeamId = state.teams.find((team) => team.id !== selectedTeamId)?.id || state.teams[0].id;
+  if (!state.news.length) state.news = [`Season ${state.season}: League opened after ${teamById(selectedTeamId).name} was selected.`];
+  state.yourNews.unshift(`Season ${state.season}: You chose ${teamById(selectedTeamId).name}. The first roster window is open.`);
   normalizeRotation(humanTeam());
   saveState();
   render();
@@ -1543,11 +1779,13 @@ function renderTeamSelect(activeId) {
 }
 
 function renderChrome(active) {
-  if (!state.setupComplete) {
+  if (!hasLocalControl()) {
     $("seasonLabel").textContent = "Choose team";
     $("phaseLabel").textContent = "Team Selection";
     $("activeTeamName").textContent = active.name;
-    $("teamSummary").textContent = "Season 1 has not started. No AI manager, trade, free-agent, mailbox, draft, or game activity will run until you confirm your team.";
+    $("teamSummary").textContent = state.setupMode === "multiplayer"
+      ? "Join a room and claim one team. Shared league actions unlock after this laptop has a team."
+      : "Season 1 has not started. No AI manager, trade, free-agent, mailbox, draft, or game activity will run until you confirm your team.";
     $("playNextBtn").textContent = "Choose Team First";
     ["playNextBtn", "simSeasonBtn", "playoffsBtn", "draftBtn", "newSeasonBtn"].forEach((id) => { $(id).disabled = true; });
     return;
@@ -2084,9 +2322,20 @@ $("closeContractBtn").addEventListener("click", closeContractOffer);
 $("submitContractBtn").addEventListener("click", submitContractOffer);
 ["contractSalary", "contractYears", "contractOption"].forEach((id) => $(id).addEventListener("input", updateContractOfferFromInputs));
 $("confirmTeamBtn").addEventListener("click", confirmTeamSelection);
+$("singleModeBtn").addEventListener("click", () => selectGameMode("single"));
+$("multiModeBtn").addEventListener("click", () => selectGameMode("multiplayer"));
+$("joinRoomBtn").addEventListener("click", joinMultiplayerRoom);
+$("roomKeyInput").addEventListener("input", (event) => {
+  event.target.value = sanitizeRoomKey(event.target.value);
+});
 $("resetBtn").addEventListener("click", () => {
   if (confirm("Reset the full 10-year league?")) {
     localStorage.removeItem(SAVE_KEY);
+    stopMultiplayerPolling();
+    multiplayerSession.connected = false;
+    multiplayerSession.roomKey = "";
+    multiplayerSession.localTeamId = null;
+    multiplayerSession.version = 0;
     state = createNewState();
     render();
   }

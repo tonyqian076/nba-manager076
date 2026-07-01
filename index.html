@@ -10,10 +10,28 @@
     <div id="teamChoiceModal" class="contract-modal hidden">
       <section class="contract-panel team-choice-panel">
         <div class="panel-heading">
-          <h3>Choose Your Team</h3>
-          <span class="pill">Season 1 setup</span>
+          <h3 id="setupTitle">Start League</h3>
+          <span id="setupBadge" class="pill">Season 1 setup</span>
         </div>
-        <div class="notice">Pick one team to control for this 10-year run. The league will not begin until you confirm.</div>
+        <div id="setupNotice" class="notice">Choose single-player or multiplayer before selecting a team.</div>
+        <div id="modeChoiceGrid" class="mode-choice-grid">
+          <button id="singleModeBtn" class="mode-choice-card">
+            <strong>One Player</strong>
+            <span class="muted">You control one team. The other seven teams are AI managers.</span>
+          </button>
+          <button id="multiModeBtn" class="mode-choice-card">
+            <strong>Multiplayer Room</strong>
+            <span class="muted">Different laptops join the same room key and claim one team each.</span>
+          </button>
+        </div>
+        <div id="multiplayerSetup" class="multiplayer-setup hidden">
+          <label class="field-label" for="roomKeyInput">Room Key</label>
+          <div class="room-row">
+            <input id="roomKeyInput" type="text" maxlength="18" placeholder="Example: FINALS2026" />
+            <button id="joinRoomBtn" class="primary-button">Join Room</button>
+          </div>
+          <div id="roomStatus" class="notice">Run the included Node server, then every laptop opens the same server URL and room key.</div>
+        </div>
         <div id="teamChoiceGrid" class="team-choice-grid"></div>
         <button id="confirmTeamBtn" class="primary-button" disabled>Start League</button>
       </section>
